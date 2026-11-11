@@ -1,6 +1,20 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+h1{
+    margin:0;
+    font-size:26px;
+    line-height:1.25;
+    font-weight: 700; /* Negrita por defecto (Bold) */
+    letter-spacing:-.01em;
+    color:#000000;
+    text-transform: uppercase; /* Si también lo quieres en mayúsculas */
+  }
+  
+  /* Clase para el texto fino */
+  .fino {
+    font-weight: 400; /* Regular / Fino */
+  }
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Herramientas de ahorro</title>
@@ -91,9 +105,8 @@
 </head>
 <body>
   <main>
-    <h1>SELECCIONA LA HERRAMIENTA QUE QUIERAS USAR</h1>
-    <div class="btns">
-      <a class="btn" href="completo/">Informe completo de ahorro</a>
+<h1 class="titulo">Selecciona la herramienta <span class="fino">que quieras</span> usar</h1>
+   <a class="btn" href="completo/">Informe completo de ahorro</a>
       <a class="btn" href="resumido/">Informe resumido de ahorro</a>
     </div>
   </main>
