@@ -1,6 +1,6 @@
 :root{
   --bg:#f4f5f7; --surface:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e5ea;
-  --accent:#107c41; --accent-ink:#ffffff; --soft:#eef3ff; --ok:#0f9d6b; --err:#dc2626; --errbg:#fdecec;
+  --accent:#fec530; --accent-ink:#ffffff; --soft:#eef3ff; --ok:#0f9d6b; --err:#dc2626; --errbg:#fdecec;
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
