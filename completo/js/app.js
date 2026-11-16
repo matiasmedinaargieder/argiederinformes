@@ -308,24 +308,93 @@ function renderReport() {
   $('previewWrap').hidden = false;
 }
 
-/* ===== PDF ===== */
+/* ===== PDF (Paginación A4 limpia por bloques y filas) ===== */
 async function makePdf() {
   if (!window.html2canvas || !window.jspdf) throw new Error('lib');
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
   const { jsPDF } = window.jspdf;
-  
+
   const reps = [...document.querySelectorAll('#report > .rep')];
-  const W = 210, M = 12, contentW = W - 2 * M;
-  let doc = null;
-  // Un informe por página (altura a medida); con un solo Excel queda como una única página.
-  for (const rep of reps) {
-    const cv = await html2canvas(rep, { scale: 2, backgroundColor: '#f5f6f8', useCORS: true, logging: false });
-    const contentH = cv.height * contentW / cv.width;
-    const H = Math.max(contentH + 2 * M, 297);
-    if (!doc) doc = new jsPDF({ unit: 'mm', format: [W, H] }); else doc.addPage([W, H], 'p');
+  const W = 210, H = 297, M = 12, GAP = 4.5;
+  const contentW = W - 2 * M;
+  const usableH = H - 2 * M;
+
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
+  const newPage = (first) => {
+    if (!first) doc.addPage('a4', 'p');
     doc.setFillColor(245, 246, 248);
     doc.rect(0, 0, W, H, 'F');
-    doc.addImage(cv.toDataURL('image/jpeg', 0.95), 'JPEG', M, M, contentW, contentH);
+  };
+
+  let isFirstPage = true;
+
+  for (const rep of reps) {
+    newPage(isFirstPage);
+    isFirstPage = false;
+    let curY = M;
+
+    const blks = [...rep.querySelectorAll(':scope > .blk')];
+    for (const blk of blks) {
+      const blkRect = blk.getBoundingClientRect();
+      // Buscamos los límites inferiores seguros (filas de tabla o filas de barras) por si el bloque excede 1 página
+      const safeBreaks = [...blk.querySelectorAll('tr, .br, .brs, .brp')]
+        .map(el => el.getBoundingClientRect().bottom - blkRect.top)
+        .filter(y => y > 0 && y < blkRect.height);
+
+      const cv = await html2canvas(blk, { scale: 2, backgroundColor: '#f5f6f8', useCORS: true, logging: false });
+      const mmPerPx = contentW / cv.width;
+      const domToCvScale = cv.height / (blkRect.height || 1);
+      const blkHMM = cv.height * mmPerPx;
+
+      // Si el bloque cabe en una sola página pero no en lo que queda de la actual, saltamos de página
+      if (blkHMM <= usableH && curY + blkHMM > H - M) {
+        newPage(false);
+        curY = M;
+      }
+
+      // Si cabe entero en el espacio disponible, lo dibujamos directamente
+      if (curY + blkHMM <= H - M) {
+        doc.addImage(cv.toDataURL('image/jpeg', 0.95), 'JPEG', M, curY, contentW, blkHMM);
+        curY += blkHMM + GAP;
+      } else {
+        // Bloque más alto que una página completa (ej. tabla con muchas ofertas): cortar solo entre filas enteras
+        const breakPointsCv = safeBreaks.map(y => Math.round(y * domToCvScale));
+        let sY = 0;
+        while (sY < cv.height) {
+          let remPx = (H - M - curY) / mmPerPx;
+          if (remPx < 30 / mmPerPx) {
+            newPage(false);
+            curY = M;
+            remPx = usableH / mmPerPx;
+          }
+
+          let eY = Math.min(cv.height, Math.floor(sY + remPx));
+          if (eY < cv.height) {
+            const valid = breakPointsCv.filter(bp => bp > sY + 20 && bp <= eY);
+            if (valid.length) eY = valid[valid.length - 1];
+          }
+
+          const sliceH = eY - sY;
+          if (sliceH <= 0) break;
+
+          const tmp = document.createElement('canvas');
+          tmp.width = cv.width;
+          tmp.height = sliceH;
+          tmp.getContext('2d').drawImage(cv, 0, sY, cv.width, sliceH, 0, 0, cv.width, sliceH);
+
+          const sliceHMM = sliceH * mmPerPx;
+          doc.addImage(tmp.toDataURL('image/jpeg', 0.95), 'JPEG', M, curY, contentW, sliceHMM);
+
+          sY = eY;
+          if (sY < cv.height) {
+            newPage(false);
+            curY = M;
+          } else {
+            curY += sliceHMM + GAP;
+          }
+        }
+      }
+    }
   }
 
   const slug = (S.opts.client || (S.sel && S.sel.client) || (S.vsel && S.vsel.client) || (S.psheets[0] && S.psheets[0].holder) || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -336,6 +405,7 @@ async function makePdf() {
   if (dl) { await dl.save({ filename, data: doc.output('blob') }); }
   else { doc.save(filename); }
 }
+
 function pdfError(e) {
   if (e && e.code === 'declined') return ['Descarga cancelada.', ''];
   if (e && e.message === 'lib') return ['No se han podido cargar las herramientas de PDF. Revisa la conexión y recarga la página.', 'err'];
