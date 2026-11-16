@@ -294,7 +294,7 @@ function renderPower(p) {
     <p class="d">Coste de la potencia en el periodo facturado: situación actual frente a la potencia nueva.</p>
     <div class="stack">${stack}</div>${tbl}${sum}</div></div>
   ${noteBlk}
-  <div class="blk"><div class="foot">Ahorro calculado con ${p.days ? nf(p.days, Number.isInteger(p.days) ? 0 : 2) + ' días de facturación' : 'el periodo facturado'}; el ahorro anual se estima a partir del mensual (365 días). Simulación orientativa: los precios de la potencia pueden variar.${contact}</div></div>
+  <div class="blk"><div class="foot">Ahorro calculado con ${p.days ? nf(p.days, Number.isInteger(p.days) ? 0 : 2) + ' días de facturación' : 'el periodo facturado'}; el ahorro anual se estima a partir del mensual (365 días). Simulación orientativa: los precios pueden variar.${contact}</div></div>
   </div>`;
 }
 
@@ -308,24 +308,46 @@ function renderReport() {
   $('previewWrap').hidden = false;
 }
 
-/* ===== PDF ===== */
+/* ===== PDF (Multit Página Automático A4) ===== */
 async function makePdf() {
   if (!window.html2canvas || !window.jspdf) throw new Error('lib');
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
   const { jsPDF } = window.jspdf;
   
   const reps = [...document.querySelectorAll('#report > .rep')];
-  const W = 210, M = 12, contentW = W - 2 * M;
-  let doc = null;
-  // Un informe por página (altura a medida); con un solo Excel queda como una única página.
+  const W = 210, H = 297, M = 12, contentW = W - 2 * M;
+  const printableH = H - 2 * M; // 273 mm de altura útil por página A4
+  
+  let doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
+  let isFirstPage = true;
+
   for (const rep of reps) {
     const cv = await html2canvas(rep, { scale: 2, backgroundColor: '#f5f6f8', useCORS: true, logging: false });
-    const contentH = cv.height * contentW / cv.width;
-    const H = Math.max(contentH + 2 * M, 297);
-    if (!doc) doc = new jsPDF({ unit: 'mm', format: [W, H] }); else doc.addPage([W, H], 'p');
-    doc.setFillColor(245, 246, 248);
-    doc.rect(0, 0, W, H, 'F');
-    doc.addImage(cv.toDataURL('image/jpeg', 0.95), 'JPEG', M, M, contentW, contentH);
+    const pagePixelHeight = (printableH * cv.width) / contentW;
+    let sY = 0;
+    
+    while (sY < cv.height) {
+      const currentChunkHeight = Math.min(pagePixelHeight, cv.height - sY);
+      
+      const tempCv = document.createElement('canvas');
+      tempCv.width = cv.width;
+      tempCv.height = currentChunkHeight;
+      const ctx = tempCv.getContext('2d');
+      ctx.drawImage(cv, 0, sY, cv.width, currentChunkHeight, 0, 0, cv.width, currentChunkHeight);
+      
+      if (!isFirstPage) {
+        doc.addPage('a4', 'p');
+      }
+      isFirstPage = false;
+      
+      doc.setFillColor(245, 246, 248);
+      doc.rect(0, 0, W, H, 'F');
+      
+      const chunkHMM = (currentChunkHeight * contentW) / cv.width;
+      doc.addImage(tempCv.toDataURL('image/jpeg', 0.95), 'JPEG', M, M, contentW, chunkHMM);
+      
+      sY += currentChunkHeight;
+    }
   }
 
   const slug = (S.opts.client || (S.sel && S.sel.client) || (S.vsel && S.vsel.client) || (S.psheets[0] && S.psheets[0].holder) || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -336,6 +358,7 @@ async function makePdf() {
   if (dl) { await dl.save({ filename, data: doc.output('blob') }); }
   else { doc.save(filename); }
 }
+
 function pdfError(e) {
   if (e && e.code === 'declined') return ['Descarga cancelada.', ''];
   if (e && e.message === 'lib') return ['No se han podido cargar las herramientas de PDF. Revisa la conexión y recarga la página.', 'err'];
