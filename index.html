@@ -3,91 +3,107 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Generador de informes de ahorro</title>
+<title>Herramientas de ahorro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<link rel="stylesheet" href="css/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="logoargieder.png">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:#ffffff;
+    color:#000000;
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    padding-top:max(24px,env(safe-area-inset-top,0px));
+    padding-bottom:max(24px,env(safe-area-inset-bottom,0px));
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Imagen de fondo con opacidad baja centrada detrás de todo */
+  body::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('logoargieder.png');
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 1050px auto;
+    opacity: 0.1;
+    z-index: 0;
+  }
+
+  main{
+    width:100%;
+    max-width:420px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+    gap:28px;
+    position: relative;
+    z-index: 1;
+  }
+
+  h1{
+    margin:0;
+    font-size:26px;
+    line-height:1.25;
+    font-weight:700; /* Negrita (Bold) por defecto */
+    letter-spacing:-.01em;
+    color:#000000;
+  }
+
+  /* Clase para el texto con trazo más fino */
+  .fino {
+    font-weight: 300; /* Fino (Light) */
+  }
+
+  .btns{
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .btn{
+    display:block;
+    width:100%;
+    padding:16px 20px;
+    border-radius:12px;
+    background:#fec530;
+    color:#000000;
+    font:inherit;
+    font-size:16px;
+    font-weight:700;
+    text-decoration:none;
+    text-align:center;
+    transition:background .15s, transform .1s;
+  }
+  .btn:hover{background:#FF9500}
+  .btn:active{transform:scale(.98)}
+  .btn:focus-visible{outline:3px solid #000000;outline-offset:3px}
+
+  @media(max-width:480px){
+    h1{font-size:22px}
+  }
+</style>
 </head>
 <body>
-<div class="app">
-  <header class="top">
-  <!-- Botón de volver al inicio -->
-  <a href="https://matiasmedinaargieder.github.io/argiederinformes/" class="btn-volver">← Volver al inicio</a>
-  <img src="img/logo.png" alt="Argieder">
-  <h1>Informe de ahorro energético</h1>
-  <p>Sube la comparativa de comercializadoras (V1 o V2), el ajuste de potencia o varios a la vez, y descarga un único PDF para el cliente.</p>
-</header>
-
-  <section class="card">
-    <div class="drops">
-    <div class="slot">
-    <p class="slotTitle">Comparativa de comercializadoras <span class="slotSub">· Excel de luz o gas</span></p>
-    <div id="drop" tabindex="0" role="button" aria-label="Elegir archivo Excel">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-      <b>Arrastra aquí tu Excel</b>
-      <span>o haz clic para elegirlo (.xlsx)</span>
-      <input id="file" type="file" accept=".xlsx,.xlsm,.xls" hidden>
+  <main>
+    <h1><span class="fino">Selecciona la herramienta</span class="fino"> que quieras usar</h1>
+    <div class="btns">
+      <a class="btn" href="completo/">Informe completo de ahorro</a>
+      <a class="btn" href="resumido/">Informe resumido de ahorro</a>
     </div>
-    <div id="fileInfo" hidden><span class="nm" id="fnm"></span><span class="sz" id="fsz"></span><button id="rm" title="Quitar archivo" aria-label="Quitar archivo">×</button></div>
-    </div>
-    <div class="slot">
-    <p class="slotTitle">Ajuste de potencia <span class="slotSub">· Excel de cambio de potencia</span></p>
-    <div id="dropP" tabindex="0" role="button" aria-label="Elegir archivo Excel de ajuste de potencia">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
-      <b>Arrastra aquí el Excel de potencia</b>
-      <span>o haz clic para elegirlo (.xlsx)</span>
-      <input id="fileP" type="file" accept=".xlsx,.xlsm,.xls" hidden>
-    </div>
-    <div id="fileInfoP" hidden><span class="nm" id="fnmP"></span><span class="sz" id="fszP"></span><button id="rmP" title="Quitar archivo" aria-label="Quitar archivo">×</button></div>
-    </div>
-    <div class="slot">
-    <p class="slotTitle">Comparativa de comercializadoras V2 <span class="slotSub">· Excel de Verónica</span></p>
-    <div id="dropV" tabindex="0" role="button" aria-label="Elegir archivo Excel de la comparativa V2">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10m6 10V4m6 16v-7m6 7H2"/></svg>
-      <b>Arrastra aquí el Excel V2</b>
-      <span>o haz clic para elegirlo (.xls / .xlsx)</span>
-      <input id="fileV" type="file" accept=".xlsx,.xlsm,.xls" hidden>
-    </div>
-    <div id="fileInfoV" hidden><span class="nm" id="fnmV"></span><span class="sz" id="fszV"></span><button id="rmV" title="Quitar archivo" aria-label="Quitar archivo">×</button></div>
-    </div>
-    </div>
-    <p class="hint">Puedes subir solo uno, dos o los tres a la vez: el PDF incluirá un informe por cada Excel subido.</p>
-    <div id="picker" hidden><p id="pickMsg"></p><div class="chips" id="chips"></div></div>
-    <div id="pickerV" hidden><p id="pickMsgV"></p><div class="chips" id="chipsV"></div></div>
-    <div class="row">
-      <button class="btn" id="go" disabled>Convertir a PDF</button>
-      <div id="status" aria-live="polite"></div>
-    </div>
-    <details id="adv" hidden>
-      <summary>Ajustes opcionales del informe</summary>
-      <div class="grid2">
-        <label class="f">Nombre del cliente<input type="text" id="oClient" placeholder="Nombre que aparece en el informe"></label>
-        <label class="f">Periodo de la factura<input type="text" id="oPeriod" placeholder="Ej.: Febrero 2026"></label>
-      </div>
-      <label class="sw" id="namesRow" hidden><input type="checkbox" id="oNames"> Mostrar el nombre de cada comercializadora (por defecto: Oferta 1, Oferta 2…)</label>
-      <table class="types" id="typesTbl"></table>
-      <label class="sw" id="namesRowV" hidden><input type="checkbox" id="oNamesV" checked> Comparativa V2: mostrar el nombre de cada comercializadora (si lo desmarcas, saldrá Oferta 1, Oferta 2…)</label>
-      <div class="grid2" id="advRow" hidden>
-        <label class="f">Asesor que aparece en el informe V2<select class="sel" id="oAdv"></select></label>
-      </div>
-      <table class="types" id="typesTblV"></table>
-      <div class="row"><button class="btn ghost" id="regen">Actualizar y descargar PDF</button></div>
-    </details>
-  </section>
-
-  <section id="previewWrap" hidden>
-    <div class="prevHead"><h2>Vista previa del informe</h2><button class="btn" id="dl">Descargar PDF</button></div>
-    <div class="prevScroll"><div id="report" class="rpt"></div></div>
-  </section>
-</div>
-
-<script defer src="js/logo.js"></script>
-<script defer src="js/core.js"></script>
-<script defer src="js/app.js"></script>
+  </main>
 </body>
 </html>
