@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Informe de varios suministros</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="css/styles.css?v=1">
+<link rel="icon" type="image/png" href="../logoargieder.png">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <a href="https://matiasmedinaargieder.github.io/argiederinformes/" class="btn-volver">← Volver al inicio</a>
+    <img src="../resumido/img/logo.png" alt="Argieder">
+    <h1>Informe de varios suministros</h1>
+    <p>Sube la comparativa de comercializadoras y, si la hay, el ajuste de potencia de cada suministro, y descarga un único PDF resumido en una hoja.</p>
+  </header>
+
+  <section class="card">
+    <div class="supGrid" id="grid"></div>
+    <div class="row">
+      <button class="btn ghost" id="add" type="button">+ Añadir suministro</button>
+      <span class="count" id="count"></span>
+    </div>
+    <p class="hint">Cada suministro tiene su propio sitio para la comparativa y para el ajuste de potencia: puedes subir solo uno de los dos, o los dos. Los suministros que dejes vacíos no salen en el informe. Hasta 20 suministros.</p>
+    <div class="row">
+      <button class="btn" id="go" disabled>Convertir a PDF</button>
+      <div id="status" aria-live="polite"></div>
+    </div>
+    <details id="adv">
+      <summary>Ajustes opcionales del informe</summary>
+      <div class="grid2">
+        <label class="f">Nombre del cliente o empresa<input type="text" id="oClient" placeholder="Nombre que aparece en el informe"></label>
+        <label class="f">Periodo de la factura<input type="text" id="oPeriod" placeholder="Ej.: Febrero 2026"></label>
+      </div>
+      <label class="sw"><input type="checkbox" id="oNames" checked> Mostrar el nombre de cada comercializadora (si lo desmarcas, saldrá Oferta 1, Oferta 2…)</label>
+      <div class="row"><button class="btn ghost" id="regen" type="button">Actualizar y descargar PDF</button></div>
+    </details>
+  </section>
+
+  <section id="previewWrap" hidden>
+    <div class="prevHead"><h2>Vista previa del informe</h2><button class="btn" id="dl">Descargar PDF</button></div>
+    <div class="prevScroll"><div id="report" class="rpt"></div></div>
+  </section>
+</div>
+
+<script defer src="js/core.js?v=1"></script>
+<script defer src="js/app.js?v=1"></script>
+</body>
+</html>
