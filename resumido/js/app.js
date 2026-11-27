@@ -1,0 +1,597 @@
+/* ===== Formato ===== */
+const nf = (v, d) => v.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtP = v => nf(Math.abs(v) * 100, 1);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const COL = { idx: '#2563eb', fix: '#2a9d8f', neg: '#e5484d', act: '#9aa3b2' };
+const EPS = 0.005;
+const E = v => nf(v, 2) + ' €';
+const kw = v => nf(v, Number.isInteger(v) ? 0 : 2);
+
+const S = { file: null, sheets: [], sel: null, pfile: null, psheets: [], psel: null,
+            opts: { client: '', period: '', showNames: true, types: {}, pick: '' },
+            vfile: null, vsheets: [], vsel: null, vadv: [], vopts: { showNames: true, types: {}, adv: '' } };
+const $ = id => document.getElementById(id);
+
+/* ===== Piezas del informe ===== */
+// Diferencia "antes − ahora": positiva = el cliente paga menos
+const delta = v => v > EPS ? { cls: 'pos', txt: '+' + E(v) } : v < -EPS ? { cls: 'neg', txt: '−' + E(-v) } : { cls: 'muted', txt: 'Sin cambios' };
+
+function tile(name, color, before, after, d, subTxt) {
+  const x = delta(d);
+  return `<div class="tl"><div class="tn"><i style="background:${color}"></i>${esc(name)}</div>
+    <div class="tv ${x.cls}">${x.txt}</div><div class="ts">${subTxt || `${E(before)} → ${E(after)}`}</div></div>`;
+}
+
+function squares(todayLabel, todaySub, newLabel, newSub, newVal, todayVal, sav, pct, annualTxt, savLabelGood, noteBad) {
+  const good = sav > EPS, bad = sav < -EPS;
+  return `<div class="trio">
+    <div class="sq"><div class="l">${todayLabel}</div><div class="v">${E(todayVal)}</div><div class="s">${todaySub}</div></div>
+    <div class="sq"><div class="l">${newLabel}</div><div class="v">${E(newVal)}</div><div class="s">${newSub}</div></div>
+    <div class="sq ${good ? 'win' : bad ? 'bad' : ''}"><div class="l">${good ? savLabelGood : bad ? noteBad : 'Sin ahorro'}</div>
+      <div class="v">${good || bad ? E(Math.abs(sav)) : '—'}</div>
+      <div class="s">${good ? fmtP(pct) + '% menos que hoy' : bad ? fmtP(pct) + '% más que hoy' : 'El importe no cambia'}${annualTxt ? `<br><b>${annualTxt}</b>` : ''}</div></div>
+  </div>`;
+}
+
+/* ===== Parte: comparativa de comercializadoras ===== */
+function compModel() {
+  const m = buildModel(S.sel, { types: S.opts.types });
+  if (!S.opts.showNames) m.offers.forEach(o => { o.label = 'Oferta ' + o.rank; });
+  return m;
+}
+function chosenOffer(m) {
+  if (S.opts.pick) { const o = m.offers.find(x => x.letter === S.opts.pick); if (o) return o; }
+  return m.offers[0] || null;
+}
+
+function compParts() {
+  const sh = S.sel, m = compModel(), best = chosenOffer(m);
+  const gas = m.kind === 'gas', period = (S.opts.period || '').trim();
+  const sv = best.saving, annual = best.annual && best.annual > 0 ? best.annual : null;
+  const isTop = best === m.offers[0];
+  const desc = `${isTop ? 'La oferta que más ahorra' : 'Oferta elegida'} entre las ${m.offers.length} analizadas${period ? ' · ' + esc(period) : ''}.`;
+  const alts = [['Mejor precio fijo', m.bestFix], ['Mejor indexado', m.bestIdx]]
+    .filter(([, o]) => o && o !== best && o.saving > EPS)
+    .map(([t, o]) => `<span class="pill">${t}: <b>${esc(o.label)}</b> ahorra ${E(o.saving)}</span>`).join('');
+
+  const top = `<div class="blk"><div class="box">
+    <h2>Cambio de comercializadora de ${gas ? 'gas' : 'luz'}</h2><p class="d">${desc}</p>
+    ${squares('Pagas hoy', `${period ? esc(period) + ', ' : ''}IVA incluido`,
+              'Pagarías con ' + esc(best.label), `${esc(best.sub)} · IVA incluido`,
+              best.total, m.actual.total, sv, best.pct, annual ? `≈ ${nf(annual, 0)} € al año` : '',
+              'Ahorras', 'Pagarías de más')}
+    ${alts ? `<div class="pills">${alts}</div>` : ''}
+  </div></div>`;
+
+  // ---- ¿De dónde sale?
+  const CON = gas
+    ? [['pot', 'Término fijo', '#2563eb'], ['ene', 'Consumo de gas', '#f59e0b'], ['ie', 'Imp. hidrocarburos', '#8b5cf6'], ['iva', 'IVA', '#94a3b8'], ['otros', 'Otros', '#d4d8df']]
+    : [['pot', 'Potencia', '#2563eb'], ['ene', 'Energía', '#f59e0b'], ['serv', 'Servicios de ajuste', '#14b8a6'], ['ie', 'Imp. eléctrico', '#8b5cf6'], ['iva', 'IVA', '#94a3b8'], ['otros', 'Otros', '#d4d8df']];
+  const con = CON.filter(([k]) => Math.abs(m.actual[k]) >= EPS || Math.abs(best[k]) >= EPS);
+  const tiles = con.map(([k, t, c]) => tile(t, c, m.actual[k], best[k], m.actual[k] - best[k])).join('');
+  const origin = `<div class="sh">En tu factura de ${gas ? 'gas' : 'luz'} <small>· ${E(m.actual.total)} hoy → ${E(best.total)} con ${esc(best.label)}</small></div>
+    <div class="tiles t3">${tiles}</div>`;
+
+  return { top, origin, saving: sv, annual, gas, tariff: sh.tariff, today: m.actual.total, after: best.total, label: best.label };
+}
+
+/* ===== Parte: comparativa V2 (Excel de Verónica) ===== */
+function advisorV2() {
+  const i = S.vopts.adv;
+  if (i !== '' && S.vadv[+i]) return S.vadv[+i];
+  const a = S.vsel && S.vsel.advisor;
+  return a && a.name ? a : null;
+}
+function compModelV2() { return buildModelV2(S.vsel, { types: S.vopts.types, showNames: S.vopts.showNames }); }
+
+function compPartsV2() {
+  const sh = S.vsel, m = compModelV2(), best = chosenOffer(m);
+  const gas = m.kind === 'gas', period = (S.opts.period || '').trim();
+  const sv = best.saving, annual = best.annual && best.annual > 0 ? best.annual : null;
+  const isTop = best === m.offers[0];
+  const desc = `${isTop ? 'La oferta que más ahorra' : 'Oferta elegida'} entre las ${m.offers.length} analizadas${period ? ' · ' + esc(period) : ''}.`;
+  const alts = [['Mejor precio fijo', m.bestFix], ['Mejor indexado', m.bestIdx]]
+    .filter(([, o]) => o && o !== best && o.saving > EPS)
+    .map(([t, o]) => `<span class="pill">${t}: <b>${esc(o.label)}</b> ahorra ${E(o.saving)}</span>`).join('');
+
+  const ss = v2SsInfo(best);
+  const kws = sh.periods.filter(p => p.kw > 0);
+  const conds = [
+    ['Servicios de ajuste', ss ? ss.txt + (ss.short && ss.short !== ss.txt ? ' (' + ss.short + ')' : '') + (ss.cost ? ' · ' + E(ss.cost) : '') : ''],
+    ['Duración', v2Dur(best)],
+    ['Descuento', best.dtoPct > 0.0001 ? nf(best.dtoPct, 0) + ' %' : ''],
+    ['Comercializadora actual', m.actual.brand],
+    ['Fin del contrato actual', sh.contractEnd],
+    ['Consumo anual', sh.kwhYear ? nf(sh.kwhYear, 0) + ' kWh' : ''],
+    ['Potencia contratada', kws.length ? kws.map(p => `${p.label} ${kw(p.kw)}`).join(' · ') + ' kW' : '']
+  ].filter(x => x[1]).map(([t, v]) => `<span class="pill">${t}: <b>${esc(v)}</b></span>`).join('');
+
+  const top = `<div class="blk"><div class="box">
+    <h2>Cambio de comercializadora de ${gas ? 'gas' : 'luz'}</h2><p class="d">${desc}</p>
+    ${squares(`Pagas hoy`, `${period ? esc(period) + ', ' : ''}IVA incluido${m.actual.brand ? ' · ' + esc(m.actual.brand) : ''}`,
+              'Pagarías con ' + esc(best.label), `${esc(best.sub)} · IVA incluido`,
+              best.total, m.actual.total, sv, best.pct, annual ? `≈ ${nf(annual, 0)} € al año` : '',
+              'Ahorras', 'Pagarías de más')}
+    ${alts ? `<div class="pills">${alts}</div>` : ''}
+    ${conds ? `<div class="pills">${conds}</div>` : ''}
+  </div></div>`;
+
+  // ---- ¿De dónde sale?
+  const hasDto = m.actual.dtoAmt > EPS || best.dtoAmt > EPS;
+  const CON = gas
+    ? [['pot', 'Término fijo', '#2563eb'], ['ene', hasDto ? 'Consumo de gas (con dto.)' : 'Consumo de gas', '#f59e0b'], ['serv', 'Servigas', '#14b8a6'], ['ie', 'Imp. hidrocarburos', '#8b5cf6'],
+       ['alq', 'Alquiler de equipo', '#64748b'], ['iva', 'IVA', '#94a3b8'], ['otros', 'Otros', '#d4d8df']]
+    : [['pot', 'Potencia', '#2563eb'], ['ene', hasDto ? 'Energía (con dto.)' : 'Energía', '#f59e0b'], ['serv', 'Servicios de ajuste', '#14b8a6'], ['cm', 'Costes de mercado', '#ec4899'],
+       ['react', 'Energía reactiva', '#f97316'], ['exc', 'Exceso de potencia', '#ef4444'], ['ie', 'Imp. eléctrico', '#8b5cf6'], ['alq', 'Alquiler de equipo', '#64748b'],
+       ['bono', 'Bono social', '#0ea5e9'], ['iva', 'IVA', '#94a3b8'], ['otros', 'Otros', '#d4d8df']];
+  const con = CON.filter(([k]) => Math.abs(m.actual[k]) >= EPS || Math.abs(best[k]) >= EPS);
+  const tiles = con.map(([k, t, c]) => tile(t, c, m.actual[k], best[k], m.actual[k] - best[k])).join('');
+  const origin = `<div class="sh">En tu factura de ${gas ? 'gas' : 'luz'} <small>· ${E(m.actual.total)} hoy → ${E(best.total)} con ${esc(best.label)}</small></div>
+    <div class="tiles ${con.length % 3 === 0 || con.length === 2 ? 't3' : 't4'}">${tiles}</div>`;
+
+  return { top, origin, saving: sv, annual, gas, tariff: sh.tariff, cups: sh.cups, ssNote: /^(CCAA|SSAA)$/i.test(best.ss || ''), today: m.actual.total, after: best.total, label: best.label };
+}
+
+/* ===== Parte: ajuste de potencia ===== */
+function powerParts() {
+  const p = S.psel;
+  const days = p.days ? nf(p.days, Number.isInteger(p.days) ? 0 : 2) : '';
+  const pct = p.totalOldIva ? (p.totalOldIva - p.totalNewIva) / p.totalOldIva : 0;
+  const per = p.periods.filter(x => x.kwOld > 0 || x.kwNew > 0);
+  const annual = p.savAIva > EPS ? p.savAIva : null;
+
+  const pills = per.map(x => {
+    const d = x.kwNew - x.kwOld;
+    const cls = Math.abs(d) < 1e-9 ? '' : d < 0 ? 'pos' : 'neg';
+    return `<span class="pill ${cls}">${x.label}: <b>${kw(x.kwOld)} → ${kw(x.kwNew)} kW</b></span>`;
+  }).join('');
+
+  const top = `<div class="blk"><div class="box">
+    <h2>Ajuste de potencia contratada</h2><p class="d">Potencia que pagas hoy frente a la que se contrataría, por periodo${days ? ` (${days} días facturados)` : ''}.</p>
+    ${squares('Pagas hoy por potencia', 'IVA incluido', 'Pagarías con el ajuste', 'IVA incluido',
+              p.totalNewIva, p.totalOldIva, p.savMIva, pct, annual ? `≈ ${E(annual)} al año` : '',
+              'Ahorras al mes', 'Sobrecoste al mes')}
+    <div class="pills">${pills}</div>
+  </div></div>`;
+
+  const changed = per.filter(x => Math.abs(x.costOld - x.costNew) > EPS || Math.abs(x.kwNew - x.kwOld) > 1e-9);
+  const tiles = (changed.length ? changed : per).map(x => tile(x.label, COL.fix, x.costOld, x.costNew, x.costOld - x.costNew,
+      `${kw(x.kwOld)} → ${kw(x.kwNew)} kW`)).join('')
+    + tile('IVA', '#94a3b8', p.ivaOld, p.ivaNew, p.ivaOld - p.ivaNew);
+  const origin = `<div class="sh">En la potencia contratada <small>· ${E(p.totalOldIva)} hoy → ${E(p.totalNewIva)} con el ajuste${changed.length && changed.length < per.length ? ' (solo periodos que cambian)' : ''}</small></div>
+    <div class="tiles t4">${tiles}</div>`;
+
+  return { top, origin, saving: p.savMIva, annual: p.savAIva, tariff: p.tariff, p, today: p.totalOldIva, after: p.totalNewIva };
+}
+
+/* ===== ¿De dónde sale el ahorro? — gráficos ===== */
+function chipSav(today, after) {
+  const sav = today - after, pct = today ? Math.abs(sav) / today : 0;
+  if (sav > EPS) return `<div class="chip2 pos">Ahorras <b>${E(sav)}</b><small>${fmtP(pct)}% menos que hoy</small></div>`;
+  if (sav < -EPS) return `<div class="chip2 neg">Pagarías <b>${E(-sav)}</b> más<small>${fmtP(pct)}% más que hoy</small></div>`;
+  return `<div class="chip2">Sin ahorro<small>El importe no cambia</small></div>`;
+}
+
+// Dos barras: lo que pagas hoy vs. lo que pagarías
+function barsChart(title, today, after, afterLabel) {
+  const max = Math.max(today, after, 0.01), H = 118;
+  const h = v => Math.max(4, Math.round(Math.max(v, 0) / max * H));
+  const worse = after > today + EPS;
+  return `<div class="ch"><div class="cht">${title}</div><div class="chs">IVA incluido</div>
+    <div class="bars2">
+      <div class="bc"><div class="bv">${E(today)}</div><div class="bb act" style="height:${h(today)}px"></div></div>
+      <div class="bc"><div class="bv">${E(after)}</div><div class="bb ${worse ? 'neg' : 'ok'}" style="height:${h(after)}px"></div></div>
+    </div>
+    <div class="bls"><div class="bl">Pagas hoy</div><div class="bl">${afterLabel}</div></div>
+    ${chipSav(today, after)}</div>`;
+}
+
+// Círculo: total que pagas hoy frente a lo que pagarías con todos los ahorros
+function donutChart(today, after) {
+  const sav = today - after, max = Math.max(today, after, 0.01);
+  const R = 50, C = 2 * Math.PI * R;
+  const A = Math.min(today, after) / max, B = Math.abs(sav) / max;
+  const worse = sav < -EPS;
+  const seg = (len, off, col) => len > 0.0005
+    ? `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${col}" stroke-width="22" stroke-dasharray="${(len * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-off * C).toFixed(2)}" transform="rotate(-90 70 70)"/>` : '';
+  return `<div class="ch"><div class="cht">Total al mes</div><div class="chs">Ahorros sumados · IVA incluido</div>
+    <div class="donut"><svg viewBox="0 0 140 140" width="140" height="140" aria-hidden="true">
+      <circle cx="70" cy="70" r="${R}" fill="none" stroke="#eef0f3" stroke-width="22"/>
+      ${seg(A, 0, COL.fix)}${seg(B, A, worse ? COL.neg : '#fec530')}
+    </svg><div class="dc"><span>Pagarías</span><b>${E(after)}</b><small>hoy ${E(today)}</small></div></div>
+    <div class="dlg"><span><i style="background:${COL.fix}"></i>Pagarías</span><span><i style="background:${worse ? COL.neg : '#fec530'}"></i>${worse ? 'De más' : 'Ahorras'}</span></div>
+    ${chipSav(today, after)}</div>`;
+}
+
+function chartsBlock(c, w) {
+  const items = [];
+  if (c) items.push(barsChart(`Precio ${c.gas ? 'gas' : 'luz'}`, c.today, c.after, 'Con ' + esc(c.label)));
+  if (w) items.push(barsChart('Ajuste de potencia', w.today, w.after, 'Con el ajuste'));
+  if (c && w) items.push(donutChart(c.today + w.today, c.after + w.after));
+  const grey = 'gris';
+  return `<div class="blk"><div class="box"><h2>¿De dónde sale el ahorro?</h2>
+    <p class="d">Cada gráfico compara lo que pagas hoy (barra ${grey}) con lo que pagarías después del cambio.</p>
+    <div class="charts n${items.length}">${items.join('')}</div></div></div>`;
+}
+
+/* ===== Informe completo (una hoja) ===== */
+function renderReport() {
+  const c = S.vsel ? compPartsV2() : S.sel ? compParts() : null;
+  const w = S.psel ? powerParts() : null;
+  if (!c && !w) return;
+  const period = (S.opts.period || '').trim();
+
+  const title = c && w ? 'Resumen de tu ahorro'
+    : c ? `Resumen de ahorro en tu factura de ${c.gas ? 'gas' : 'luz'}` : 'Resumen de ahorro con el ajuste de potencia';
+  const tariffs = [...new Set([c && 'Tarifa ' + c.tariff, w && 'Tarifa ' + w.tariff].filter(Boolean))];
+  const sub = [(S.opts.client || '').trim(), c && c.cups ? 'CUPS ' + c.cups : (!c && w && w.p.cups ? 'CUPS ' + w.p.cups : ''), ...tariffs, period].filter(Boolean).join(' · ');
+
+  // Bloque superior: título + ahorro total (todo junto)
+  const sv = c && w ? c.saving + w.saving : (c ? c.saving : w.saving);
+  const yrRaw = c && w ? (c.annual > EPS && w.annual > EPS ? c.annual + w.annual : null) : (c ? c.annual : (w.annual > EPS ? w.annual : null));
+  const bad = sv < -EPS;
+  const mid = c && w
+    ? `<div class="hm"><div class="l">Ahorro total estimado</div>
+        <div class="s">${E(c.saving)} por cambiar de comercializadora<br>${E(w.saving)} al mes por ajustar la potencia</div></div>` : '';
+  const hero = `<div class="blk"><div class="hero${bad ? ' bad' : ''}">
+      <div class="ht"><h1>${title}</h1><div class="sub">${esc(sub)}</div></div>
+      ${mid}
+      <div class="big">${bad ? '−' : ''}${E(Math.abs(sv))}${yrRaw ? `<small>≈ ${nf(yrRaw, 0)} € al año</small>` : '<small>IVA incluido</small>'}</div>
+    </div></div>`;
+
+  $('report').innerHTML = `<div class="rep one">
+    <div class="blk"><div class="logoRow"><img class="logo" src="img/logo.png" onerror="this.onerror=null;this.src=LOGO" alt=""></div></div>
+    ${hero}
+    ${c ? c.top : ''}
+    ${w ? w.top : ''}
+    ${chartsBlock(c, w)}
+  </div>`;
+  $('previewWrap').hidden = false;
+}
+
+/* ===== Paginación A4: los cortes de página solo se hacen entre bloques ===== */
+// Devuelve los tramos [top, bottom] (en px del informe) que van en cada página.
+function pageRanges(rep, maxPx) {
+  const base = rep.getBoundingClientRect().top;
+  const units = [];
+  const collect = el => {
+    const r = el.getBoundingClientRect();
+    const top = r.top - base, bottom = r.bottom - base;
+    if (bottom - top > maxPx && el.children.length) { [...el.children].forEach(collect); return; } // no cabe en una hoja: se baja a sus partes
+    units.push({
+      top, bottom,
+      keepNext: el.matches('h2, .d, .legend, .sh'),                 // títulos: siempre pegados a lo que les sigue
+      foot: el.classList.contains('foot') || !!el.querySelector('.foot') // nota final: pegada a lo anterior
+    });
+  };
+  [...rep.children].forEach(collect);
+  // Agrupar: título + contenido, y nota final + bloque anterior (si caben juntos)
+  const groups = [];
+  let carry = null;
+  for (const u of units) {
+    let g = u;
+    if (carry) { g = { top: carry.top, bottom: u.bottom, keepNext: u.keepNext, foot: u.foot }; carry = null; }
+    if (g.foot && groups.length) {
+      const prev = groups[groups.length - 1];
+      if (g.bottom - prev.top <= maxPx) { prev.bottom = g.bottom; continue; }
+    }
+    if (g.keepNext) { carry = g; continue; }
+    groups.push(g);
+  }
+  if (carry) groups.push(carry);
+  // Rellenar hojas: cada hoja termina siempre entre dos bloques
+  const pages = [];
+  let cur = null;
+  for (const g of groups) {
+    if (!cur) cur = { top: g.top, bottom: g.bottom };
+    else if (g.bottom - cur.top <= maxPx) cur.bottom = g.bottom;
+    else { pages.push(cur); cur = { top: g.top, bottom: g.bottom }; }
+  }
+  if (cur) pages.push(cur);
+  return pages;
+}
+
+/* ===== PDF (hojas A4, cortes limpios entre bloques) ===== */
+async function makePdf() {
+  if (!window.html2canvas || !window.jspdf) throw new Error('lib');
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  const { jsPDF } = window.jspdf;
+  const reps = [document.querySelector('#report > .rep')];
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, H = 297, M = 12, contentW = W - 2 * M, maxH = H - 2 * M;
+  let first = true;
+  for (const rep of reps) {
+    const cv = await html2canvas(rep, { scale: 2, backgroundColor: '#f5f6f8', useCORS: true, logging: false });
+    const rr = rep.getBoundingClientRect();
+    const mmPerPx = contentW / rr.width, ratio = cv.height / rr.height;
+    let ranges = pageRanges(rep, maxH / mmPerPx);
+    // Si solo se pasa un poco de una hoja, se ajusta a una única hoja (reducción máx. ~10 %)
+    if (ranges.length > 1 && rr.height * mmPerPx <= maxH * 1.1) ranges = [{ top: 0, bottom: rr.height }];
+    for (const r of ranges) {
+      const sy = Math.max(0, Math.round(r.top * ratio));
+      const sh = Math.min(cv.height - sy, Math.round((r.bottom - r.top) * ratio));
+      const piece = document.createElement('canvas');
+      piece.width = cv.width; piece.height = sh;
+      const ctx = piece.getContext('2d');
+      ctx.fillStyle = '#f5f6f8'; ctx.fillRect(0, 0, piece.width, piece.height);
+      ctx.drawImage(cv, 0, sy, cv.width, sh, 0, 0, cv.width, sh);
+      let w = contentW, h = sh * contentW / cv.width;
+      if (h > maxH) { const k = maxH / h; w *= k; h = maxH; }   // solo si un único bloque no cabe en una hoja
+      if (!first) doc.addPage('a4', 'p');
+      first = false;
+      doc.setFillColor(245, 246, 248);
+      doc.rect(0, 0, W, H, 'F');
+      doc.addImage(piece.toDataURL('image/jpeg', 0.95), 'JPEG', (W - w) / 2, M, w, h);
+    }
+  }
+
+  const slug = (S.opts.client || (S.sel && S.sel.client) || (S.vsel && S.vsel.client) || (S.psel && S.psel.holder) || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'cliente';
+  const filename = `Resumen_ahorro_${slug}.pdf`;
+  let dl = null;
+  try { if (window.claude && typeof window.claude.use === 'function') dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
+  if (dl) { await dl.save({ filename, data: doc.output('blob') }); }
+  else { doc.save(filename); }
+}
+function pdfError(e) {
+  if (e && e.code === 'declined') return ['Descarga cancelada.', ''];
+  if (e && e.message === 'lib') return ['No se han podido cargar las herramientas de PDF. Revisa la conexión y recarga la página.', 'err'];
+  return ['No he podido generar el PDF. Inténtalo de nuevo.', 'err'];
+}
+
+/* ===== Interfaz ===== */
+function status(msg, cls) { const s = $('status'); s.textContent = msg || ''; s.className = cls || ''; }
+const fmtSize = b => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1).replace('.', ',') + ' MB');
+
+function refreshState() {
+  const any = S.sheets.length || S.psheets.length || S.vsheets.length;
+  $('adv').hidden = true; $('previewWrap').hidden = true; $('go').disabled = !any;
+}
+function resetComp() {
+  S.file = null; S.sheets = []; S.sel = null; S.opts = { client: '', period: '', showNames: true, types: {}, pick: '' };
+  $('file').value = ''; $('fileInfo').hidden = true; $('picker').hidden = true;
+  refreshState(); status('');
+}
+function resetPow() {
+  S.pfile = null; S.psheets = []; S.psel = null;
+  $('fileP').value = ''; $('fileInfoP').hidden = true; $('pickerP').hidden = true;
+  refreshState(); status('');
+}
+
+function resetV() {
+  S.vfile = null; S.vsheets = []; S.vsel = null; S.vadv = []; S.vopts = { showNames: true, types: {}, adv: '' };
+  $('fileV').value = ''; $('fileInfoV').hidden = true; $('pickerV').hidden = true;
+  refreshState(); status('');
+}
+
+async function loadV2(f) {
+  if (!f) return;
+  if (!/\.(xlsx|xlsm|xls)$/i.test(f.name)) { status('Ese archivo no es un Excel (.xlsx). Prueba con otro.', 'err'); return; }
+  const swapped = S.sheets.length > 0; if (swapped) resetComp();   // el resumen usa una sola comparativa (V1 o V2)
+  resetV(); S.vfile = f; S.opts.pick = '';
+  $('fnmV').textContent = f.name; $('fszV').textContent = fmtSize(f.size); $('fileInfoV').hidden = false;
+  if (!window.XLSX) { status('No se ha podido cargar el lector de Excel. Revisa la conexión y recarga la página.', 'err'); return; }
+  status('Leyendo el Excel…');
+  try {
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellStyles: true });
+    const all = parseWorkbookV2(wb);
+    S.vsheets = all.filter(s => !s.error); S.vadv = all.advisors || [];
+    if (!S.vsheets.length) {
+      if (!all.length && parsePowerWorkbook(wb).some(s => !s.error)) { status('Este Excel es de ajuste de potencia. Súbelo en el cuadro “Ajuste de potencia”.', 'err'); return; }
+      status(all.some(s => s.error)
+        ? 'El Excel no trae los importes calculados. Ábrelo en Excel, guárdalo (Ctrl+G) y vuelve a subirlo.'
+        : 'No he encontrado ninguna simulación de luz o gas en este archivo.', 'err');
+      return;
+    }
+    status(`${S.vsheets.length === 1 ? 'Simulación V2 encontrada' : S.vsheets.length + ' simulaciones V2 encontradas'}. Pulsa “Convertir a PDF”.${swapped ? ' (Se ha quitado la comparativa V1: el resumen usa una sola comparativa.)' : ''}`);
+    $('go').disabled = false;
+  } catch (e) { status('No he podido leer el archivo. ¿Está dañado o protegido con contraseña?', 'err'); }
+}
+
+async function loadFile(f) {
+  if (!f) return;
+  if (!/\.(xlsx|xlsm|xls)$/i.test(f.name)) { status('Ese archivo no es un Excel (.xlsx). Prueba con otro.', 'err'); return; }
+  const swapped = S.vsheets.length > 0; if (swapped) resetV();
+  resetComp(); S.file = f;
+  $('fnm').textContent = f.name; $('fsz').textContent = fmtSize(f.size); $('fileInfo').hidden = false;
+  if (!window.XLSX) { status('No se ha podido cargar el lector de Excel. Revisa la conexión y recarga la página.', 'err'); return; }
+  status('Leyendo el Excel…');
+  try {
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellStyles: true });
+    const all = parseWorkbook(wb);
+    S.sheets = all.filter(s => !s.error);
+    if (!S.sheets.length) {
+      if (!all.length && parsePowerWorkbook(wb).some(s => !s.error)) { status('Este Excel es de ajuste de potencia. Súbelo en el cuadro “Ajuste de potencia”.', 'err'); return; }
+      status(all.some(s => s.error)
+        ? 'El Excel no trae los importes calculados. Ábrelo en Excel, guárdalo (Ctrl+G) y vuelve a subirlo.'
+        : 'No he encontrado ninguna simulación de luz o gas en este archivo.', 'err');
+      return;
+    }
+    status(`${S.sheets.length === 1 ? 'Simulación encontrada' : S.sheets.length + ' simulaciones encontradas'}. Pulsa “Convertir a PDF”.${swapped ? ' (Se ha quitado la comparativa V2: el resumen usa una sola comparativa.)' : ''}`);
+    $('go').disabled = false;
+  } catch (e) { status('No he podido leer el archivo. ¿Está dañado o protegido con contraseña?', 'err'); }
+}
+
+async function loadPower(f) {
+  if (!f) return;
+  if (!/\.(xlsx|xlsm|xls)$/i.test(f.name)) { status('Ese archivo no es un Excel (.xlsx). Prueba con otro.', 'err'); return; }
+  resetPow(); S.pfile = f;
+  $('fnmP').textContent = f.name; $('fszP').textContent = fmtSize(f.size); $('fileInfoP').hidden = false;
+  if (!window.XLSX) { status('No se ha podido cargar el lector de Excel. Revisa la conexión y recarga la página.', 'err'); return; }
+  status('Leyendo el Excel…');
+  try {
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+    const all = parsePowerWorkbook(wb);
+    S.psheets = all.filter(s => !s.error);
+    const empty = all.filter(s => s.error === 'vacia').map(s => s.name);
+    const notes = all.filter(s => s.error === 'vacia' || s.error === 'sin_tabla' || s.error === 'sin_valores')
+      .map(s => `${s.name} (${s.error === 'vacia' ? 'sin rellenar: ' + (s.cells || []).map(c => c.a + (c.v === '' ? ' vacía' : ' = ' + c.v)).join(', ') : 'no he podido leer su tabla'})`);
+    if (!S.psheets.length) {
+      if (notes.length && empty.length) status(`No se incluye: ${notes.join(', ')}. Rellena la potencia contratada y la potencia a contratar.`, 'err');
+      else if (all.some(s => s.error)) status('El Excel no trae los importes calculados. Ábrelo en Excel, guárdalo (Ctrl+G) y vuelve a subirlo.', 'err');
+      else if (parseWorkbook(wb).some(s => !s.error)) status('Este Excel es una comparativa de comercializadoras. Súbelo en el cuadro “Comparativa de comercializadoras”.', 'err');
+      else status('No he encontrado datos de potencia. ¿Has rellenado la potencia contratada y la nueva?', 'err');
+      return;
+    }
+    status(`Ajuste de potencia encontrado (${S.psheets.map(s => s.tariff).join(' y ')}).${notes.length ? ' No se incluye: ' + notes.join(', ') + '.' : ''} Pulsa “Convertir a PDF”.`);
+    $('go').disabled = false;
+  } catch (e) { status('No he podido leer el archivo. ¿Está dañado o protegido con contraseña?', 'err'); }
+}
+
+function showPicker(msg) {
+  $('pickMsg').textContent = msg;
+  $('chips').innerHTML = S.sheets.map((s, i) => `<button class="chip${S.sel === s ? ' on' : ''}" data-i="${i}">${esc(s.name)} <small>· ${esc(s.client || 'sin nombre de cliente')}</small></button>`).join('');
+  $('picker').hidden = false;
+}
+function showPickerV(msg) {
+  $('pickMsgV').textContent = msg;
+  $('chipsV').innerHTML = S.vsheets.map((s, i) => `<button class="chip${S.vsel === s ? ' on' : ''}" data-i="${i}">${esc(s.name)} <small>· ${esc(s.client || (s.cols.length - 1) + ' ofertas')}</small></button>`).join('');
+  $('pickerV').hidden = false;
+}
+function showPickerP(msg) {
+  $('pickMsgP').textContent = msg;
+  $('chipsP').innerHTML = S.psheets.map((s, i) => `<button class="chip${S.psel === s ? ' on' : ''}" data-i="${i}">${esc(s.name)} <small>· ${esc(s.holder || 'sin titular')}</small></button>`).join('');
+  $('pickerP').hidden = false;
+}
+
+function prepareOptions() {
+  const sh = S.sel, ps = S.psel, vs = S.vsel;
+  S.opts.client = S.opts.client || (sh && sh.client) || (vs && vs.client) || (ps && ps.holder) || '';
+  if (vs && !S.opts.period && vs.periodTxt) S.opts.period = vs.periodTxt;
+  $('oClient').value = S.opts.client; $('oPeriod').value = S.opts.period || '';
+  $('oPeriod').closest('label').hidden = !(sh || vs);
+  // comparativa V1
+  if (!sh) { $('namesRow').hidden = true; $('typesTbl').innerHTML = ''; }
+  else {
+    const hasBrand = sh.cols.some(c => c.brand);
+    $('namesRow').hidden = !hasBrand; $('oNames').checked = S.opts.showNames;
+    const m = compModel();
+    $('typesTbl').innerHTML = `<thead><tr><th>Oferta</th><th>Columna</th><th>Tipo</th></tr></thead><tbody>` + m.offers.map(o =>
+      `<tr><td>${esc(o.label)}${o.brand ? ` <span class="tag">(${esc(o.brand)})</span>` : ''}</td><td>${o.letter}${o.typeText ? ` <span class="tag">· ${esc(o.typeText)}</span>` : ''}</td>
+       <td><select data-col="${o.letter}"><option value="fix"${o.type === 'fix' ? ' selected' : ''}>Precio fijo</option><option value="idx"${o.type === 'idx' ? ' selected' : ''}>Indexado</option></select></td></tr>`).join('') + '</tbody>';
+  }
+  // comparativa V2
+  if (!vs) { $('namesRowV').hidden = true; $('typesTblV').innerHTML = ''; $('advRow').hidden = true; }
+  else {
+    $('namesRowV').hidden = !vs.hasBrands; $('oNamesV').checked = S.vopts.showNames;
+    const mv = buildModelV2(vs, { types: S.vopts.types, showNames: false });
+    $('typesTblV').innerHTML = `<thead><tr><th>Oferta (V2)</th><th>Columna</th><th>Tipo</th></tr></thead><tbody>` + mv.offers.map(o =>
+      `<tr><td>${esc(o.label)}${o.brand ? ` <span class="tag">(${esc(o.brand)})</span>` : ''}</td><td>${o.letter}${o.typeText ? ` <span class="tag">· ${esc(v2Pretty(o.typeText))}</span>` : ''}</td>
+       <td><select data-col="${o.letter}"><option value="fix"${o.type === 'fix' ? ' selected' : ''}>Precio fijo</option><option value="idx"${o.type === 'idx' ? ' selected' : ''}>Indexado</option></select></td></tr>`).join('') + '</tbody>';
+    $('advRow').hidden = !S.vadv.length;
+    if (S.vadv.length) {
+      const own = vs.advisor && vs.advisor.name;
+      $('oAdv').innerHTML = `<option value="">${own ? 'Según el Excel (' + esc(own) + ')' : 'Sin asesor en el informe'}</option>` + S.vadv.map((a, i) => `<option value="${i}">${esc(a.name)}</option>`).join('');
+      $('oAdv').value = S.vopts.adv;
+    }
+  }
+  // oferta que se destaca
+  const mm = vs ? compModelV2() : sh ? compModel() : null;
+  if (!mm) $('pickRow').hidden = true;
+  else {
+    $('oPick').innerHTML = `<option value="">La que más ahorra (recomendada)</option>` + mm.offers.map(o =>
+      `<option value="${o.letter}">${esc(o.label)} · ${esc(o.sub)} · ${o.saving > 0 ? 'ahorra ' + E(o.saving) : 'sin ahorro'}</option>`).join('');
+    $('oPick').value = S.opts.pick;
+    $('pickRow').hidden = mm.offers.length < 2;
+  }
+  $('adv').hidden = false;
+}
+function prepareOptionsKeep() { const c = $('oClient').value, p = $('oPeriod').value; prepareOptions(); $('oClient').value = c; $('oPeriod').value = p; }
+
+async function convert() {
+  const btn = $('go'); btn.disabled = true;
+  try {
+    if (S.sheets.length && !S.sel) {
+      const named = S.sheets.filter(s => s.client);
+      if (S.sheets.length === 1) S.sel = S.sheets[0];
+      else if (named.length === 1) S.sel = named[0];
+      else { showPicker('Hay varias simulaciones en este Excel. ¿Cuál quieres convertir?'); status(''); btn.disabled = false; return; }
+    }
+    if (S.vsheets.length && !S.vsel) {
+      const named = S.vsheets.filter(s => s.client);
+      if (S.vsheets.length === 1) S.vsel = S.vsheets[0];
+      else if (named.length === 1) S.vsel = named[0];
+      else { showPickerV('Hay varias simulaciones en el Excel V2. ¿Cuál quieres convertir?'); status(''); btn.disabled = false; return; }
+    }
+    if (S.psheets.length && !S.psel) {
+      if (S.psheets.length === 1) S.psel = S.psheets[0];
+      else { showPickerP('Hay varias hojas de potencia en este Excel. ¿Cuál quieres convertir?'); status(''); btn.disabled = false; return; }
+    }
+    $('picker').hidden = S.sheets.length < 2;
+    if (S.sheets.length > 1 && S.sel) showPicker('Simulación elegida (puedes cambiarla):');
+    $('pickerV').hidden = S.vsheets.length < 2;
+    if (S.vsheets.length > 1 && S.vsel) showPickerV('Simulación V2 elegida (puedes cambiarla):');
+    $('pickerP').hidden = S.psheets.length < 2;
+    if (S.psheets.length > 1 && S.psel) showPickerP('Hoja de potencia elegida (puedes cambiarla):');
+    status('Generando el informe…');
+    prepareOptions(); renderReport();
+    await new Promise(r => setTimeout(r, 60));
+    await makePdf();
+    status('PDF descargado ✓', 'ok');
+  } catch (e) { const [m, c] = pdfError(e); status(m, c); }
+  btn.disabled = false;
+}
+
+const drop = $('drop'), fin = $('file');
+drop.addEventListener('click', () => fin.click());
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fin.click(); } });
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => loadFile(e.dataTransfer.files[0]));
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { if (!drop.contains(e.target) && !$('dropP').contains(e.target) && !$('dropV').contains(e.target)) e.preventDefault(); });
+fin.addEventListener('change', () => loadFile(fin.files[0]));
+$('rm').addEventListener('click', resetComp);
+$('go').addEventListener('click', convert);
+$('chips').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  S.sel = S.sheets[+b.dataset.i]; S.opts.client = ''; S.opts.types = {}; S.opts.pick = ''; convert();
+});
+$('chipsP').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  S.psel = S.psheets[+b.dataset.i]; convert();
+});
+$('oClient').addEventListener('input', e => { S.opts.client = e.target.value; renderReport(); });
+$('oPeriod').addEventListener('input', e => { S.opts.period = e.target.value; renderReport(); });
+$('oNames').addEventListener('change', e => { S.opts.showNames = e.target.checked; prepareOptionsKeep(); renderReport(); });
+$('oPick').addEventListener('change', e => { S.opts.pick = e.target.value; renderReport(); });
+$('typesTbl').addEventListener('change', e => {
+  const s = e.target.closest('select'); if (!s) return;
+  S.opts.types[s.dataset.col] = s.value; prepareOptionsKeep(); renderReport();
+});
+async function downloadNow() { status('Generando el PDF…'); try { await makePdf(); status('PDF descargado ✓', 'ok'); } catch (e) { const [m, c] = pdfError(e); status(m, c); } }
+$('regen').addEventListener('click', () => { renderReport(); downloadNow(); });
+$('dl').addEventListener('click', downloadNow);
+
+/* ===== Cuadro del Excel de ajuste de potencia ===== */
+const dropP = $('dropP'), finP = $('fileP');
+dropP.addEventListener('click', () => finP.click());
+dropP.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); finP.click(); } });
+['dragenter', 'dragover'].forEach(ev => dropP.addEventListener(ev, e => { e.preventDefault(); dropP.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => dropP.addEventListener(ev, e => { e.preventDefault(); dropP.classList.remove('over'); }));
+dropP.addEventListener('drop', e => loadPower(e.dataTransfer.files[0]));
+finP.addEventListener('change', () => loadPower(finP.files[0]));
+$('rmP').addEventListener('click', resetPow);
+
+/* ===== Cuadro de la comparativa V2 (Excel de Verónica) ===== */
+const dropV = $('dropV'), finV = $('fileV');
+dropV.addEventListener('click', () => finV.click());
+dropV.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); finV.click(); } });
+['dragenter', 'dragover'].forEach(ev => dropV.addEventListener(ev, e => { e.preventDefault(); dropV.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => dropV.addEventListener(ev, e => { e.preventDefault(); dropV.classList.remove('over'); }));
+dropV.addEventListener('drop', e => loadV2(e.dataTransfer.files[0]));
+finV.addEventListener('change', () => loadV2(finV.files[0]));
+$('rmV').addEventListener('click', resetV);
+$('chipsV').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  S.vsel = S.vsheets[+b.dataset.i]; S.opts.client = ''; S.vopts.types = {}; S.vopts.adv = ''; S.opts.pick = ''; convert();
+});
+$('oNamesV').addEventListener('change', e => { S.vopts.showNames = e.target.checked; prepareOptionsKeep(); renderReport(); });
+$('oAdv').addEventListener('change', e => { S.vopts.adv = e.target.value; renderReport(); });
+$('typesTblV').addEventListener('change', e => {
+  const s = e.target.closest('select'); if (!s) return;
+  S.vopts.types[s.dataset.col] = s.value; prepareOptionsKeep(); renderReport();
+});
